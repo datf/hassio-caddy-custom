@@ -1,0 +1,32 @@
+# https://developers.home-assistant.io/docs/apps/configuration#app-configuration
+name: Caddy Custom
+version: "0.0.1"
+slug: caddy-custom
+description: Cusomizable caddy server
+url: "https://github.com/datf/hassio-caddy-custom"
+arch:
+  - amd64
+  - aarch64
+  - armv7
+startup: services
+#ports:
+#  80/tcp: 80
+#  443/tcp: 443
+host_network: true
+map:
+  - addon_config:rw
+  - ssl:rw
+options:
+  args: []
+  env_vars: []
+  log_level: info
+schema:
+  args:
+    - str
+  env_vars:
+    - name: str
+      value: str
+  log_level: list(trace|debug|info|notice|warning|error|fatal)
+environment:
+  LOG_FORMAT: "{LEVEL}: {MESSAGE}"
+init: false
