@@ -29,3 +29,4 @@ schema:
 environment:
   LOG_FORMAT: "{LEVEL}: {MESSAGE}"
 init: false
+image: "ghcr.io/datf/hassio-caddy-custom"
