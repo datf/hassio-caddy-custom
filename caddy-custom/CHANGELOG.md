@@ -1,4 +1,8 @@
 <!-- https://developers.home-assistant.io/docs/apps/presentation#keeping-a-changelog -->
+## 0.0.6
+
+- Actual fix for the 2nd attempt.
+
 ## 0.0.5
 
 - Fix regex for plugin config - 2nd attempt.
