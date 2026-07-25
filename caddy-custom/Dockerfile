@@ -1,7 +1,7 @@
-ARG BUILD_FROM=ghcr.io/home-assistant/base:3.23
+ARG BUILD_FROM=ghcr.io/home-assistant/base:latest
 FROM $BUILD_FROM
 
-ENV LANG C.UTF-8
+ENV LANG=C.UTF-8
 
 RUN apk add --no-cache go nss-tools
 
