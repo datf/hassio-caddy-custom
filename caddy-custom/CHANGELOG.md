@@ -1,4 +1,8 @@
 <!-- https://developers.home-assistant.io/docs/apps/presentation#keeping-a-changelog -->
+## 0.0.7
+
+- Switched config checks to the addon_config folder.
+
 ## 0.0.6
 
 - Actual fix for the 2nd attempt.

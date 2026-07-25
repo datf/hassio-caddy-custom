@@ -11,7 +11,7 @@ ENV GOPATH=/go
 ENV PATH=$GOPATH/bin:$PATH
 
 # Paths for caddy config and certificates
-ENV XDG_CONFIG_HOME=/data
+ENV XDG_CONFIG_HOME=/config
 ENV XDG_DATA_HOME=/ssl
 
 RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
