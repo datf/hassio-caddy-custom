@@ -1,0 +1,57 @@
+#!/command/with-contenv bashio
+# ==============================================================================
+# Build a custom version of caddy with xcaddy and the plugins from the config
+# s6-overlay docs: https://github.com/just-containers/s6-overlay
+# ==============================================================================
+
+CUSTOM_CADDY_PATH="${XDG_CONFIG_HOME}/caddy-custom"
+TMP_CADDY_BUILD_PATH="/tmp/caddy_new"
+
+REQUESTED_PLUGINS=$(bashio::config 'plugins')
+LAST_PLUGINS=$(cat $XDG_CONFIG_HOME/last_plugins.txt 2>/dev/null || echo "none")
+
+if [ "$REQUESTED_PLUGINS" == "$LAST_PLUGINS" ]; then
+    bashio::log.info "Plugins unchanged. No build required."
+    exit 0
+fi
+
+bashio::log.info "Config change detected. Building new Caddy binary..."
+
+XCADDY_ARGS=()
+for plugin in $(bashio::config 'plugins'); do
+    XCADDY_ARGS+=("--with" "$plugin")
+done
+
+# Run the build to a temporary location
+if xcaddy build --output $TMP_CADDY_BUILD_PATH "${XCADDY_ARGS[@]}"; then
+    bashio::log.info "Build successful. Validating configuration..."
+
+    # Export ENV vars before validation, in case the Caddyfile requires them to parse correctly
+    for var in $(bashio::config 'env_vars|keys'); do
+        export "$(bashio::config "env_vars[${var}].name")"="$(bashio::config "env_vars[${var}].value")"
+    done
+
+    # Test the new binary with the current config
+    if $TMP_CADDY_BUILD_PATH validate --config /etc/caddy/Caddyfile; then
+        bashio::log.info "Validation passed! Deploying..."
+
+        # Replace the persistent binary and update the state
+        mv $TMP_CADDY_BUILD_PATH $CUSTOM_CADDY_PATH
+        chmod +x $CUSTOM_CADDY_PATH
+        echo "$REQUESTED_PLUGINS" > $XDG_CONFIG_HOME/last_plugins.txt
+
+	touch /tmp/caddy_hotswap
+
+        bashio::log.info "Restarting Caddy service to load new binary..."
+        # Restart with the new binary via s6-rc.d
+	s6-svc -r /run/service/caddy-custom
+    else
+        bashio::log.error "New binary failed validation. Aborting deployment."
+	exit 1
+    fi
+else
+    bashio::log.error "xcaddy build failed."
+    exit 1
+fi
+
+exit 0

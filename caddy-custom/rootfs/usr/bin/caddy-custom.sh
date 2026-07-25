@@ -4,7 +4,7 @@ declare -a args=()
 
 bashio::log.info 'Prepare Caddy...'
 
-CUSTOM_CADDYFILE_PATH="/config/Caddyfile"
+CUSTOM_CADDYFILE_PATH="$XDG_CONFIG_HOME/Caddyfile"
 
 if bashio::fs.file_exists "${CUSTOM_CADDYFILE_PATH}"; then
   bashio::log.info "Caddyfile found at ${CUSTOM_CADDYFILE_PATH}"
@@ -14,7 +14,7 @@ else
   export CONFIG_PATH=/etc/caddy/Caddyfile
 fi
 
-CUSTOM_CADDY_PATH="/config/caddy-custom"
+CUSTOM_CADDY_PATH="$XDG_CONFIG_HOME/caddy-custom"
 
 # Check for custom Caddy binary at custom Caddy path
 bashio::log.info "Checking path: ${CUSTOM_CADDY_PATH}"
@@ -31,4 +31,4 @@ bashio::log.info $("${CADDY_PATH}" version)
 
 bashio::log.info "Runing Caddy..."
 bashio::log.debug "'${CADDY_PATH}' run --config '${CONFIG_PATH}' '${args[*]}'"
-"${CADDY_PATH}" run --config "${CONFIG_PATH}" "${args[@]}"
+exec "${CADDY_PATH}" run --config "${CONFIG_PATH}" "${args[@]}"

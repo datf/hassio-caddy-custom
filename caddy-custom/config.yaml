@@ -1,6 +1,6 @@
 # https://developers.home-assistant.io/docs/apps/configuration#app-configuration
 name: Caddy Custom
-version: "0.0.1"
+version: "0.0.2"
 slug: caddy-custom
 description: Cusomizable caddy server
 url: "https://github.com/datf/hassio-caddy-custom"
@@ -18,8 +18,11 @@ map:
 options:
   args: []
   env_vars: []
+  plugins: []
   log_level: info
 schema:
+  plugins:
+    - match "^github.com/.*"
   args:
     - str
   env_vars:
