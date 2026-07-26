@@ -21,6 +21,11 @@ bashio::log.info "Checking path: ${CUSTOM_CADDY_PATH}"
 if bashio::fs.file_exists "${CUSTOM_CADDY_PATH}"; then
   bashio::log.info "Found custom Caddy with modules:"
   "${CUSTOM_CADDY_PATH}" list-modules -s
+  if bashio::fs.file_exists "/tmp/caddy_hotswap"; then
+      bashio::log.info "Hot-swap flag detected. Removing..."
+      rm -f /tmp/caddy_hotswap
+      exit 0
+  fi
   export CADDY_PATH="${CUSTOM_CADDY_PATH}"
 else
   bashio::log.info "Using vanilla Caddy"

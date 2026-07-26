@@ -8,9 +8,9 @@ CUSTOM_CADDY_PATH="${XDG_CONFIG_HOME}/caddy-custom"
 TMP_CADDY_BUILD_PATH="/tmp/caddy_new"
 
 REQUESTED_PLUGINS=$(bashio::config 'plugins')
-LAST_PLUGINS=$(cat $XDG_CONFIG_HOME/last_plugins.txt 2>/dev/null || echo "none")
+LAST_PLUGINS=$(cat $XDG_CONFIG_HOME/last_plugins.txt 2>/dev/null || echo "")
 
-if [ "$REQUESTED_PLUGINS" == "$LAST_PLUGINS" ]; then
+if [ "${REQUESTED_PLUGINS}" == "${LAST_PLUGINS}" ]; then
     bashio::log.info "Plugins unchanged. No build required."
     exit 0
 fi
