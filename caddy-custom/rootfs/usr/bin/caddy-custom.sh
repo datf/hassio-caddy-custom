@@ -5,6 +5,10 @@ bashio::log.level "${LOGLEVEL:-debug}"
 
 declare -a args=()
 
+while read -r arg; do
+    args+=("$arg")
+done < <(bashio::config 'args')
+
 bashio::log.info 'Prepare Caddy...'
 
 CUSTOM_CADDYFILE_PATH="${XDG_CONFIG_HOME}/Caddyfile"
