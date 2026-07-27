@@ -4,6 +4,9 @@
 # s6-overlay docs: https://github.com/just-containers/s6-overlay
 # ==============================================================================
 
+LOGLEVEL="$(bashio::config 'log_level')"
+bashio::log.level "${LOGLEVEL:-debug}"
+
 CUSTOM_CADDY_PATH="${XDG_CONFIG_HOME}/caddy-custom"
 TMP_CADDY_BUILD_PATH="/tmp/caddy_new"
 

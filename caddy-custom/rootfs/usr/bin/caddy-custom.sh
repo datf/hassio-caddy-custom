@@ -1,5 +1,8 @@
 #!/command/with-contenv bashio
 
+LOGLEVEL="$(bashio::config 'log_level')"
+bashio::log.level "${LOGLEVEL:-debug}"
+
 declare -a args=()
 
 bashio::log.info 'Prepare Caddy...'
