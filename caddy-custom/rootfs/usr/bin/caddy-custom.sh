@@ -1,13 +1,11 @@
 #!/command/with-contenv bashio
 
 LOGLEVEL="$(bashio::config 'log_level')"
+bashio::log.debug "log_level from config: '${LOGLEVEL}'"
 bashio::log.level "${LOGLEVEL:-debug}"
 
-declare -a args=()
-
-while read -r arg; do
-    args+=("$arg")
-done < <(bashio::config 'args')
+ARGS=$(bashio::config 'args')
+bashio::log.debug "args from config: '${ARGS[*]}'"
 
 bashio::log.info 'Prepare Caddy...'
 
@@ -24,12 +22,12 @@ fi
 CUSTOM_CADDY_PATH="${XDG_CONFIG_HOME}/caddy-custom"
 
 # Check for custom Caddy binary at custom Caddy path
-bashio::log.info "Checking path: ${CUSTOM_CADDY_PATH}"
+bashio::log.debug "Checking path: ${CUSTOM_CADDY_PATH}"
 if bashio::fs.file_exists "${CUSTOM_CADDY_PATH}"; then
   bashio::log.info "Found custom Caddy with modules:"
   "${CUSTOM_CADDY_PATH}" list-modules -s
   if bashio::fs.file_exists "/tmp/caddy_hotswap"; then
-      bashio::log.info "Hot-swap flag detected. Removing..."
+      bashio::log.debug "Hot-swap flag detected. Removing..."
       rm -f /tmp/caddy_hotswap
       exit 0
   fi
@@ -39,8 +37,12 @@ else
   export CADDY_PATH="/app/caddy"
 fi
 
+for var in $(bashio::config 'env_vars|keys'); do
+  export "$(bashio::config "env_vars[${var}].name")"="$(bashio::config "env_vars[${var}].value")"
+done
+
 bashio::log.info $("${CADDY_PATH}" version)
 
 bashio::log.info "Runing Caddy..."
-bashio::log.debug "'${CADDY_PATH}' run --config '${CONFIG_PATH}' '${args[*]}'"
-exec "${CADDY_PATH}" run --config "${CONFIG_PATH}" "${args[@]}"
+bashio::log.debug "'${CADDY_PATH}' run --config '${CONFIG_PATH}' '${ARGS[*]}'"
+exec "${CADDY_PATH}" run --config "${CONFIG_PATH}" "${ARGS[@]}"

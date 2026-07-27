@@ -1,4 +1,10 @@
 <!-- https://developers.home-assistant.io/docs/apps/presentation#keeping-a-changelog -->
+## 0.0.11
+
+- Added default --watch arg to watch for config file changes.
+- Added ENV variables when launching Caddy.
+- Made logging less verbose.
+
 ## 0.0.10
 
 - Passing args from config.
