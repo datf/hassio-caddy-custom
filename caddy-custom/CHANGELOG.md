@@ -1,4 +1,8 @@
 <!-- https://developers.home-assistant.io/docs/apps/presentation#keeping-a-changelog -->
+## 0.0.12
+
+- Removed newline when getting args from config.
+
 ## 0.0.11
 
 - Added default --watch arg to watch for config file changes.

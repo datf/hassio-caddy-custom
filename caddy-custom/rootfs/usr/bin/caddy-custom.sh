@@ -4,7 +4,7 @@ LOGLEVEL="$(bashio::config 'log_level')"
 bashio::log.debug "log_level from config: '${LOGLEVEL}'"
 bashio::log.level "${LOGLEVEL:-debug}"
 
-ARGS=$(bashio::config 'args')
+readarray -t ARGS < <(bashio::config 'args')
 bashio::log.debug "args from config: '${ARGS[*]}'"
 
 bashio::log.info 'Prepare Caddy...'
