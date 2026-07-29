@@ -1,9 +1,10 @@
 ARG BUILD_FROM=ghcr.io/hassio-addons/base:21.0.0
-FROM $BUILD_FROM
+# hadolint ignore=DL3006
+FROM ${BUILD_FROM}
 
 ENV LANG=C.UTF-8
 ENV GOPATH=/go
-ENV PATH=$GOPATH/bin:$PATH
+ENV PATH=${GOPATH}/bin:${PATH}
 
 RUN mkdir /app
 
