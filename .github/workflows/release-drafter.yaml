@@ -1,0 +1,15 @@
+---
+name: Release Drafter
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  workflows:
+    uses: hassio-addons/workflows/.github/workflows/release-drafter.yaml@v3.0.0

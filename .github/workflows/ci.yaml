@@ -1,0 +1,20 @@
+---
+name: CI
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  packages: read
+  security-events: write
+
+jobs:
+  workflows:
+    uses: hassio-addons/workflows/.github/workflows/app-ci.yaml@v3.0.0
