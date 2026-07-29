@@ -115,6 +115,7 @@ jobs:
 
   publish:
     name: Publish repository
+    needs: manifest
     runs-on: ubuntu-latest
     steps:
       - name: Dispatch repository updater update signal
