@@ -41,7 +41,7 @@ for var in $(bashio::config 'env_vars|keys'); do
   export "$(bashio::config "env_vars[${var}].name")"="$(bashio::config "env_vars[${var}].value")"
 done
 
-bashio::log.info $("${CADDY_PATH}" version)
+$("${CADDY_PATH}" version)
 
 bashio::log.info "Runing Caddy..."
 bashio::log.debug "'${CADDY_PATH}' run --config '${CONFIG_PATH}' '${ARGS[*]}'"

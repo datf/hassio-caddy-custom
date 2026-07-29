@@ -1,30 +1,43 @@
-ARG BUILD_FROM=ghcr.io/hassio-addons/base:latest
+ARG BUILD_FROM=ghcr.io/hassio-addons/base:21.0.0
 FROM $BUILD_FROM
 
 ENV LANG=C.UTF-8
-
-RUN apk add --no-cache go nss-tools
+ENV GOPATH=/go
+ENV PATH=$GOPATH/bin:$PATH
 
 RUN mkdir /app
 
-ENV GOPATH=/go
-ENV PATH=$GOPATH/bin:$PATH
+COPY rootfs /
+
+RUN apk add --no-cache go=1.26.3-r0 nss-tools=3.124-r0
 
 # Paths for caddy config and certificates
 ENV XDG_CONFIG_HOME=/config
 ENV XDG_DATA_HOME=/ssl
 
-RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
+RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest; \
+    xcaddy build --output /app/caddy; \
+    /app/caddy version; /app/caddy build-info
 
-RUN xcaddy build --output /app/caddy --with github.com/fabriziosalmi/caddy-waf --with github.com/mkalus/caddy_nobots_v2
-
-RUN /app/caddy version; /app/caddy build-info
-
-COPY rootfs /
+# Build arguments
+ARG BUILD_ARCH
+ARG BUILD_DATE
+ARG BUILD_DESCRIPTION
+ARG BUILD_NAME
+ARG BUILD_REF
+ARG BUILD_REPOSITORY
+ARG BUILD_VERSION
 
 LABEL \
+    io.hass.name="${BUILD_NAME}" \
+    io.hass.description="${BUILD_DESCRIPTION}" \
+    io.hass.arch="${BUILD_ARCH}" \
     io.hass.type="addon" \
-    org.opencontainers.image.title="Home Assistant App: Caddy Custom" \
-    org.opencontainers.image.description="Caddy with compiled add-ons" \
-    org.opencontainers.image.source="https://github.com/datf/hassio-caddy-custom" \
-    org.opencontainers.image.licenses="MIT"
+    io.hass.version=${BUILD_VERSION} \
+    org.opencontainers.image.title="${BUILD_NAME}" \
+    org.opencontainers.image.description="${BUILD_DESCRIPTION}" \
+    org.opencontainers.image.source="https://github.com/${BUILD_REPOSITORY}" \
+    org.opencontainers.image.licenses="MIT" \
+    org.opencontainers.image.created=${BUILD_DATE} \
+    org.opencontainers.image.revision=${BUILD_REF} \
+    org.opencontainers.image.version=${BUILD_VERSION}
