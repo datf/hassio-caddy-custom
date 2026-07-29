@@ -31,4 +31,3 @@ jobs:
       DISPATCH_TOKEN: ${{ secrets.DISPATCH_TOKEN }}
     with:
       repository: datf/hassio-addons
-
