@@ -9,4 +9,4 @@ updates:
     cooldown:
       default-days: 7
     assignees:
-      - 'datf'
+      - "datf"
