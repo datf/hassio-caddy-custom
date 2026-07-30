@@ -5,7 +5,6 @@ name: Release Drafter
 on:
   push:
     branches:
-      - main
       - master
 
 permissions:
