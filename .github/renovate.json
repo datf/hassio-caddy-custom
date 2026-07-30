@@ -4,7 +4,7 @@
   "rebaseWhen": "behind-base-branch",
   "dependencyDashboard": true,
   "labels": ["dependencies", "no-stale"],
-  "assigneesFromCodeowners": true,
+  "assigneesFromCodeOwners": true,
   "commitMessagePrefix": "⬆️",
   "commitMessageTopic": "{{depName}}",
   "customManagers": [
