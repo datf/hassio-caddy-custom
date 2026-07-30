@@ -1,3 +1,7 @@
-localhost {
-	respond "Hello, world!"
+{
+    auto_https off
+}
+
+:8901 {
+    respond "Hello, world!"
 }
