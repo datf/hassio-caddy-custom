@@ -31,4 +31,4 @@ jobs:
     secrets:
       DISPATCH_TOKEN: ${{ secrets.DISPATCH_TOKEN }}
     with:
-      repository: datf/hassio-addons
+      repository: hassio-addons
