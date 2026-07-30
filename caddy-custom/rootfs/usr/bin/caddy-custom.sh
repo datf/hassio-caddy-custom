@@ -1,9 +1,5 @@
 #!/command/with-contenv bashio
 
-LOGLEVEL="$(bashio::config 'log_level')"
-bashio::log.debug "log_level from config: '${LOGLEVEL}'"
-bashio::log.level "${LOGLEVEL:-debug}"
-
 readarray -t ARGS < <(bashio::config 'args')
 bashio::log.debug "args from config: '${ARGS[*]}'"
 
