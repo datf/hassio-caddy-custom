@@ -20,6 +20,24 @@
     {
       "customType": "regex",
       "managerFilePatterns": ["//Dockerfile$/"],
+      "matchStrings": [
+        "ENV XCADDY_VERSION=[\"']?(?<currentValue>v[\\d.]+)[\"']?"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "caddyserver/xcaddy"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["//Dockerfile$/"],
+      "matchStrings": [
+        "ENV CADDY_VERSION=[\"']?(?<currentValue>v[\\d.]+)[\"']?"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "caddyserver/caddy"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["//Dockerfile$/"],
       "matchStringsStrategy": "any",
       "matchStrings": [
         "\\s\\s(?<package>[a-z0-9-]+)=(?<currentValue>[a-z0-9-_.]+)\\s+"

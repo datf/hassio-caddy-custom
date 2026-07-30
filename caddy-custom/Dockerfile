@@ -10,14 +10,19 @@ RUN mkdir /app
 
 COPY rootfs /
 
-RUN apk add --no-cache go=1.26.3-r0 nss-tools=3.124-r0
+RUN apk add --no-cache \
+    go=1.26.1-r0 \
+    nss-tools=3.124-r0
 
 # Paths for caddy config and certificates
 ENV XDG_CONFIG_HOME=/config
 ENV XDG_DATA_HOME=/ssl
 
-RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest; \
-    xcaddy build --output /app/caddy; \
+ENV XCADDY_VERSION="v0.4.4"
+ENV CADDY_VERSION="v2.11.3"
+
+RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@${XCADDY_VERSION}; \
+    xcaddy build ${CADDY_VERSION} --output /app/caddy; \
     /app/caddy version; /app/caddy build-info
 
 # Build arguments
