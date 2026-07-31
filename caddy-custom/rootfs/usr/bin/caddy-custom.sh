@@ -3,15 +3,15 @@
 readarray -t ARGS < <(bashio::config 'args')
 bashio::log.debug "args from config: '${ARGS[*]}'"
 
-bashio::log.info 'Prepare Caddy...'
+bashio::log.debug 'Prepare Caddy...'
 
 CUSTOM_CADDYFILE_PATH="${XDG_CONFIG_HOME}/Caddyfile"
 
 if bashio::fs.file_exists "${CUSTOM_CADDYFILE_PATH}"; then
-  bashio::log.info "Caddyfile found at ${CUSTOM_CADDYFILE_PATH}"
+  bashio::log.debug "Caddyfile found at ${CUSTOM_CADDYFILE_PATH}"
   export CONFIG_PATH=${CUSTOM_CADDYFILE_PATH}
 else
-  bashio::log.info "No Caddyfile found at ${CUSTOM_CADDYFILE_PATH}. Using default."
+  bashio::log.debug "No Caddyfile found at ${CUSTOM_CADDYFILE_PATH}. Using built-in."
   export CONFIG_PATH=/etc/caddy/Caddyfile
 fi
 
