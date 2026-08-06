@@ -14,8 +14,7 @@ map:
   - addon_config:rw
   - ssl:rw
 options:
-  args:
-    - "--watch"
+  args: []
   env_vars: []
   plugins: []
   log_level: info
