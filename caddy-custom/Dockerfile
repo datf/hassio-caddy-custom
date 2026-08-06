@@ -11,7 +11,7 @@ RUN mkdir /app
 COPY rootfs /
 
 RUN apk add --no-cache \
-    go=1.26.3-r0 \
+    go=1.26.5-r0 \
     nss-tools=3.124-r0
 
 # Paths for caddy config and certificates
