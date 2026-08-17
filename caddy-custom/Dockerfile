@@ -18,7 +18,7 @@ RUN apk add --no-cache \
 ENV XDG_CONFIG_HOME=/config
 ENV XDG_DATA_HOME=/ssl
 
-ENV XCADDY_VERSION="v0.4.5"
+ENV XCADDY_VERSION="v0.4.7"
 ENV CADDY_VERSION="v2.11.4"
 
 RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@${XCADDY_VERSION}; \
