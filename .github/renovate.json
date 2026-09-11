@@ -47,18 +47,20 @@
       "managerFilePatterns": ["//Dockerfile$/"],
       "matchStringsStrategy": "any",
       "matchStrings": [
-        "\\s\\s(?<package>[a-z0-9-]+)=(?<currentValue>[a-z0-9-_.]+)\\s+"
+        "(?:^|\r\n|\r|\n|$)\\s+(?<packageName>[a-z0-9-]+)=(?<currentValue>.+)"
       ],
       "versioningTemplate": "loose",
-      "datasourceTemplate": "custom.alpine",
-      "depNameTemplate": "alpine_3_24/{{package}}",
-      "extractVersionTemplate": "^{{{package}}}-(?<version>\\d.*)\\.apk$"
+      "datasourceTemplate": "apk"
     }
   ],
   "packageRules": [
     {
-      "matchDatasources": ["custom.alpine"],
-      "automerge": true
+      "matchDatasources": ["apk"],
+      "automerge": true,
+      "registryUrls": [
+        "https://dl-cdn.alpinelinux.org/alpine?branch=v3.24&components=main,community&arch=x86_64",
+        "https://dl-cdn.alpinelinux.org/alpine?branch=v3.24&components=main,community&arch=aarch64"
+      ]
     },
     {
       "groupName": "App base image",
