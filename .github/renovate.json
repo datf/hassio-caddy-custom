@@ -47,7 +47,7 @@
       "managerFilePatterns": ["//Dockerfile$/"],
       "matchStringsStrategy": "any",
       "matchStrings": [
-        "(?:^|\r\n|\r|\n|$)\\s+(?<packageName>[a-z0-9-]+)=(?<currentValue>.+)"
+        "(?:^|\r\n|\r|\n|$)\\s+(?<packageName>[a-z0-9-]+)=(?<currentValue>[a-z0-9-_.]+)\\s*"
       ],
       "versioningTemplate": "loose",
       "datasourceTemplate": "apk"
