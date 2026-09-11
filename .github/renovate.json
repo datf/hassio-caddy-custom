@@ -7,12 +7,6 @@
   "assigneesFromCodeOwners": true,
   "commitMessagePrefix": "⬆️",
   "commitMessageTopic": "{{depName}}",
-  "customDatasources": {
-    "alpine": {
-      "defaultRegistryUrlTemplate": "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/",
-      "format": "html"
-    }
-  },
   "customManagers": [
     {
       "customType": "regex",
