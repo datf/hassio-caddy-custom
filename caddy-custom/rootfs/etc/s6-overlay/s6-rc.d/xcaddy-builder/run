@@ -7,23 +7,77 @@
 CUSTOM_CADDY_PATH="${XDG_CONFIG_HOME}/caddy-custom"
 TMP_CADDY_BUILD_PATH="/tmp/caddy_new"
 
-REQUESTED_PLUGINS=$(bashio::config 'plugins')
-LAST_PLUGINS=$(cat "${XDG_CONFIG_HOME}/last_plugins.txt" 2>/dev/null || echo "")
+LAST_PLUGINS_FILE="${XDG_CONFIG_HOME}/last_plugins.txt"
 
-if [ "${REQUESTED_PLUGINS}" == "${LAST_PLUGINS}" ]; then
-    bashio::log.info "Plugins unchanged. No build required."
+if ! bashio::config.has_value 'plugins'; then
+    if [ -f "${CUSTOM_CADDY_PATH}" ]; then
+        bashio::log.info "No plugins configured. Removing custom Caddy binary..."
+        rm -f "${CUSTOM_CADDY_PATH}" "${LAST_PLUGINS_FILE}"
+        touch /tmp/caddy_hotswap
+        bashio::log.info "Restarting Caddy service to revert to vanilla Caddy..."
+        s6-svc -r /run/service/caddy-custom
+    else
+        bashio::log.info "No plugins configured. No build required."
+    fi
     exit 0
 fi
 
-bashio::log.info "Config change detected. Building new Caddy binary..."
-
+# Resolve requested plugins to concrete versions
+RESOLVED_PLUGINS=""
 XCADDY_ARGS=()
+RESOLUTION_FAILED=false
+
 for plugin in $(bashio::config 'plugins'); do
-    XCADDY_ARGS+=("--with" "$plugin")
+    # Skip if module is a replacement (module=override)
+    if [[ "${plugin}" == *"="* ]]; then
+        RESOLVED_PLUGINS+="${plugin} "
+        XCADDY_ARGS+=("--with" "${plugin}")
+        continue
+    fi
+
+    module_path="${plugin%%@*}"
+    version_spec="${plugin#*@}"
+
+    # Use @latest if no version specified
+    if [ "${version_spec}" == "${plugin}" ]; then
+        query="${module_path}@latest"
+    else
+        query="${module_path}@${version_spec}"
+    fi
+
+    actual_version=$(go list -m -f '{{.Version}}' "${query}" 2>/dev/null || echo "")
+
+    if [ -n "${actual_version}" ]; then
+        target_spec="${module_path}@${actual_version}"
+        RESOLVED_PLUGINS+="${target_spec} "
+        XCADDY_ARGS+=("--with" "${target_spec}")
+    else
+        RESOLUTION_FAILED=true
+        bashio::log.warning "Could not resolve version for '${plugin}'."
+        RESOLVED_PLUGINS+="${plugin} "
+        XCADDY_ARGS+=("--with" "${plugin}")
+    fi
 done
 
+# Trim whitespace
+RESOLVED_PLUGINS="$(echo "${RESOLVED_PLUGINS}" | xargs)"
+LAST_PLUGINS="$(cat "${LAST_PLUGINS_FILE}" 2>/dev/null || echo "")"
+LAST_PLUGINS="$(echo "${LAST_PLUGINS}" | xargs)"
+
+if [ -f "${CUSTOM_CADDY_PATH}" ]; then
+    if [ "${RESOLVED_PLUGINS}" == "${LAST_PLUGINS}" ]; then
+        bashio::log.info "All plugins up to date (${RESOLVED_PLUGINS}). No build required."
+        exit 0
+    elif [ "${RESOLUTION_FAILED}" = true ]; then
+        bashio::log.warning "Network or module resolution error, but existing custom Caddy binary found. Skipping build."
+        exit 0
+    fi
+fi
+
+bashio::log.info "Config or version change detected (Current: '${LAST_PLUGINS}', Target: '${RESOLVED_PLUGINS}'). Building new Caddy binary..."
+
 # Run the build to a temporary location
-if xcaddy build --output $TMP_CADDY_BUILD_PATH "${XCADDY_ARGS[@]}"; then
+if xcaddy build --output "${TMP_CADDY_BUILD_PATH}" "${XCADDY_ARGS[@]}"; then
     bashio::log.info "Build successful. Validating configuration..."
 
     # Export ENV vars before validation, in case the Caddyfile requires them to parse correctly
@@ -32,13 +86,18 @@ if xcaddy build --output $TMP_CADDY_BUILD_PATH "${XCADDY_ARGS[@]}"; then
     done
 
     # Test the new binary with the current config
-    if $TMP_CADDY_BUILD_PATH validate --config /etc/caddy/Caddyfile; then
+    CONFIG_PATH="/etc/caddy/Caddyfile"
+    if [ -f "${XDG_CONFIG_HOME}/Caddyfile" ]; then
+        CONFIG_PATH="${XDG_CONFIG_HOME}/Caddyfile"
+    fi
+
+    if "${TMP_CADDY_BUILD_PATH}" validate --config "${CONFIG_PATH}"; then
         bashio::log.info "Validation passed! Deploying..."
 
         # Replace the persistent binary and update the state
         mv "${TMP_CADDY_BUILD_PATH}" "${CUSTOM_CADDY_PATH}"
         chmod +x "${CUSTOM_CADDY_PATH}"
-        echo "${REQUESTED_PLUGINS}" > "${XDG_CONFIG_HOME}/last_plugins.txt"
+        echo "${RESOLVED_PLUGINS}" > "${LAST_PLUGINS_FILE}"
 
         touch /tmp/caddy_hotswap
 
