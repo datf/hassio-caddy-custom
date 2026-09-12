@@ -8,11 +8,12 @@ CUSTOM_CADDY_PATH="${XDG_CONFIG_HOME}/caddy-custom"
 TMP_CADDY_BUILD_PATH="/tmp/caddy_new"
 
 LAST_PLUGINS_FILE="${XDG_CONFIG_HOME}/last_plugins.txt"
+LAST_CADDY_FILE="${XDG_CONFIG_HOME}/last_caddy_version.txt"
 
 if ! bashio::config.has_value 'plugins'; then
     if [ -f "${CUSTOM_CADDY_PATH}" ]; then
         bashio::log.info "No plugins configured. Removing custom Caddy binary..."
-        rm -f "${CUSTOM_CADDY_PATH}" "${LAST_PLUGINS_FILE}"
+        rm -f "${CUSTOM_CADDY_PATH}" "${LAST_PLUGINS_FILE}" "${LAST_CADDY_FILE}"
         touch /tmp/caddy_hotswap
         bashio::log.info "Restarting Caddy service to revert to vanilla Caddy..."
         s6-svc -r /run/service/caddy-custom
@@ -22,10 +23,17 @@ if ! bashio::config.has_value 'plugins'; then
     exit 0
 fi
 
-# Resolve requested plugins to concrete versions
+RESOLUTION_FAILED=false
+
+# Check caddy version upstream
+ACTUAL_CADDY_VERSION=$(go list -m -f '{{.Version}}' "github.com/caddyserver/caddy/v2@latest" 2>/dev/null || echo "")
+if [ -z "${ACTUAL_CADDY_VERSION}" ]; then
+    RESOLUTION_FAILED=true
+    bashio::log.warning "Unable to query the latest caddy version."
+fi
+
 RESOLVED_PLUGINS=""
 XCADDY_ARGS=()
-RESOLUTION_FAILED=false
 
 for plugin in $(bashio::config 'plugins'); do
     # Skip if module is a replacement (module=override)
@@ -64,20 +72,30 @@ RESOLVED_PLUGINS="$(echo "${RESOLVED_PLUGINS}" | xargs)"
 LAST_PLUGINS="$(cat "${LAST_PLUGINS_FILE}" 2>/dev/null || echo "")"
 LAST_PLUGINS="$(echo "${LAST_PLUGINS}" | xargs)"
 
+INSTALLED_CADDY_VERSION=""
 if [ -f "${CUSTOM_CADDY_PATH}" ]; then
-    if [ "${RESOLVED_PLUGINS}" == "${LAST_PLUGINS}" ]; then
-        bashio::log.info "All plugins up to date (${RESOLVED_PLUGINS}). No build required."
+    INSTALLED_CADDY_VERSION=$("${CUSTOM_CADDY_PATH}" version 2>/dev/null | awk '{print $1}')
+fi
+LAST_CADDY_VERSION=$(cat "${LAST_CADDY_FILE}" 2>/dev/null || echo "")
+CURRENT_CADDY="${INSTALLED_CADDY_VERSION:-${LAST_CADDY_VERSION}}"
+
+if [ -f "${CUSTOM_CADDY_PATH}" ]; then
+    if [ "${RESOLVED_PLUGINS}" == "${LAST_PLUGINS}" ] && [ -n "${CURRENT_CADDY}" ] && [ "${CURRENT_CADDY}" == "${ACTUAL_CADDY_VERSION}" ]; then
+        bashio::log.info "Caddy (${ACTUAL_CADDY_VERSION}) and plugins up to date (${RESOLVED_PLUGINS})."
         exit 0
     elif [ "${RESOLUTION_FAILED}" = true ]; then
-        bashio::log.warning "Network or module resolution error, but existing custom Caddy binary found. Skipping build."
         exit 0
     fi
 fi
 
-bashio::log.info "Config or version change detected (Current: '${LAST_PLUGINS}', Target: '${RESOLVED_PLUGINS}'). Building new Caddy binary..."
+if [ -n "${CURRENT_CADDY}" ] && [ -n "${ACTUAL_CADDY_VERSION}" ] && [ "${CURRENT_CADDY}" != "${ACTUAL_CADDY_VERSION}" ]; then
+    bashio::log.info "New version from mainstream (Current: '${CURRENT_CADDY}', Latest: '${ACTUAL_CADDY_VERSION}'). Rebuilding Caddy..."
+else
+    bashio::log.info "Config or plugin version change detected (Current plugins: '${LAST_PLUGINS}', Target: '${RESOLVED_PLUGINS}'). Building new Caddy binary..."
+fi
 
 # Run the build to a temporary location
-if xcaddy build --output "${TMP_CADDY_BUILD_PATH}" "${XCADDY_ARGS[@]}"; then
+if xcaddy build ${ACTUAL_CADDY_VERSION:+${ACTUAL_CADDY_VERSION}} --output "${TMP_CADDY_BUILD_PATH}" "${XCADDY_ARGS[@]}"; then
     bashio::log.info "Build successful. Validating configuration..."
 
     # Export ENV vars before validation, in case the Caddyfile requires them to parse correctly
@@ -98,6 +116,7 @@ if xcaddy build --output "${TMP_CADDY_BUILD_PATH}" "${XCADDY_ARGS[@]}"; then
         mv "${TMP_CADDY_BUILD_PATH}" "${CUSTOM_CADDY_PATH}"
         chmod +x "${CUSTOM_CADDY_PATH}"
         echo "${RESOLVED_PLUGINS}" > "${LAST_PLUGINS_FILE}"
+        echo "${ACTUAL_CADDY_VERSION}" > "${LAST_CADDY_FILE}"
 
         touch /tmp/caddy_hotswap
 
