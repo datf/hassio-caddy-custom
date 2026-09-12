@@ -9,11 +9,12 @@ TMP_CADDY_BUILD_PATH="/tmp/caddy_new"
 
 LAST_PLUGINS_FILE="${XDG_CONFIG_HOME}/last_plugins.txt"
 LAST_CADDY_FILE="${XDG_CONFIG_HOME}/last_caddy_version.txt"
+LAST_GO_FILE="${XDG_CONFIG_HOME}/last_go_version.txt"
 
 if ! bashio::config.has_value 'plugins'; then
     if [ -f "${CUSTOM_CADDY_PATH}" ]; then
         bashio::log.info "No plugins configured. Removing custom Caddy binary..."
-        rm -f "${CUSTOM_CADDY_PATH}" "${LAST_PLUGINS_FILE}" "${LAST_CADDY_FILE}"
+        rm -f "${CUSTOM_CADDY_PATH}" "${LAST_PLUGINS_FILE}" "${LAST_CADDY_FILE}" "${LAST_GO_FILE}"
         touch /tmp/caddy_hotswap
         bashio::log.info "Restarting Caddy service to revert to vanilla Caddy..."
         s6-svc -r /run/service/caddy-custom
@@ -24,6 +25,8 @@ if ! bashio::config.has_value 'plugins'; then
 fi
 
 RESOLUTION_FAILED=false
+
+CONTAINER_GO_VERSION=$(go env GOVERSION 2>/dev/null || go version 2>/dev/null | awk '{print $3}')
 
 # Check caddy version upstream
 ACTUAL_CADDY_VERSION=$(go list -m -f '{{.Version}}' "github.com/caddyserver/caddy/v2@latest" 2>/dev/null || echo "")
@@ -73,22 +76,34 @@ LAST_PLUGINS="$(cat "${LAST_PLUGINS_FILE}" 2>/dev/null || echo "")"
 LAST_PLUGINS="$(echo "${LAST_PLUGINS}" | xargs)"
 
 INSTALLED_CADDY_VERSION=""
+INSTALLED_GO_VERSION=""
 if [ -f "${CUSTOM_CADDY_PATH}" ]; then
     INSTALLED_CADDY_VERSION=$("${CUSTOM_CADDY_PATH}" version 2>/dev/null | awk '{print $1}')
+    INSTALLED_GO_VERSION=$("${CUSTOM_CADDY_PATH}" build-info 2>/dev/null | awk '$1 == "go" {print $2}')
+    if [ -z "${INSTALLED_GO_VERSION}" ]; then
+        INSTALLED_GO_VERSION=$(go version "${CUSTOM_CADDY_PATH}" 2>/dev/null | awk '{print $2}')
+    fi
 fi
 LAST_CADDY_VERSION=$(cat "${LAST_CADDY_FILE}" 2>/dev/null || echo "")
 CURRENT_CADDY="${INSTALLED_CADDY_VERSION:-${LAST_CADDY_VERSION}}"
 
+LAST_GO_VERSION=$(cat "${LAST_GO_FILE}" 2>/dev/null || echo "")
+CURRENT_GO="${INSTALLED_GO_VERSION:-${LAST_GO_VERSION}}"
+
 if [ -f "${CUSTOM_CADDY_PATH}" ]; then
-    if [ "${RESOLVED_PLUGINS}" == "${LAST_PLUGINS}" ] && [ -n "${CURRENT_CADDY}" ] && [ "${CURRENT_CADDY}" == "${ACTUAL_CADDY_VERSION}" ]; then
-        bashio::log.info "Caddy (${ACTUAL_CADDY_VERSION}) and plugins up to date (${RESOLVED_PLUGINS})."
+    if [ "${RESOLVED_PLUGINS}" == "${LAST_PLUGINS}" ] && \
+       [ -n "${CURRENT_CADDY}" ] && [ "${CURRENT_CADDY}" == "${ACTUAL_CADDY_VERSION}" ] && \
+       [ -n "${CURRENT_GO}" ] && [ "${CURRENT_GO}" == "${CONTAINER_GO_VERSION}" ]; then
+        bashio::log.info "Caddy (${ACTUAL_CADDY_VERSION}), Go (${CONTAINER_GO_VERSION}) and plugins up to date (${RESOLVED_PLUGINS})."
         exit 0
     elif [ "${RESOLUTION_FAILED}" = true ]; then
         exit 0
     fi
 fi
 
-if [ -n "${CURRENT_CADDY}" ] && [ -n "${ACTUAL_CADDY_VERSION}" ] && [ "${CURRENT_CADDY}" != "${ACTUAL_CADDY_VERSION}" ]; then
+if [ -n "${CURRENT_GO}" ] && [ -n "${CONTAINER_GO_VERSION}" ] && [ "${CURRENT_GO}" != "${CONTAINER_GO_VERSION}" ]; then
+    bashio::log.info "New Go version detected (Current: '${CURRENT_GO}', Last: '${CONTAINER_GO_VERSION}'). Rebuilding Caddy..."
+elif [ -n "${CURRENT_CADDY}" ] && [ -n "${ACTUAL_CADDY_VERSION}" ] && [ "${CURRENT_CADDY}" != "${ACTUAL_CADDY_VERSION}" ]; then
     bashio::log.info "New version from mainstream (Current: '${CURRENT_CADDY}', Latest: '${ACTUAL_CADDY_VERSION}'). Rebuilding Caddy..."
 else
     bashio::log.info "Config or plugin version change detected (Current plugins: '${LAST_PLUGINS}', Target: '${RESOLVED_PLUGINS}'). Building new Caddy binary..."
@@ -117,6 +132,7 @@ if xcaddy build ${ACTUAL_CADDY_VERSION:+${ACTUAL_CADDY_VERSION}} --output "${TMP
         chmod +x "${CUSTOM_CADDY_PATH}"
         echo "${RESOLVED_PLUGINS}" > "${LAST_PLUGINS_FILE}"
         echo "${ACTUAL_CADDY_VERSION}" > "${LAST_CADDY_FILE}"
+        echo "${CONTAINER_GO_VERSION}" > "${LAST_GO_FILE}"
 
         touch /tmp/caddy_hotswap
 
