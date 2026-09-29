@@ -13,6 +13,7 @@ host_network: true
 map:
   - addon_config:rw
   - ssl:rw
+  - share
 options:
   args: []
   env_vars: []
