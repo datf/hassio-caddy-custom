@@ -38,13 +38,61 @@ fi
 RESOLVED_PLUGINS=""
 XCADDY_ARGS=()
 
-for plugin in $(bashio::config 'plugins'); do
-    # Skip if module is a replacement (module=override)
+readarray -t CONFIGURED_PLUGINS < <(bashio::config 'plugins')
+
+# Pre-scan plugins to identify module roots and replacements
+REPLACED_MODULES=()
+BASE_MODULES=()
+for plugin in "${CONFIGURED_PLUGINS[@]}"; do
     if [[ "${plugin}" == *"="* ]]; then
+        target="${plugin%%=*}"
+        target_mod="${target%%@*}"
+        REPLACED_MODULES+=("${target_mod}")
+    else
+        mod="${plugin%%@*}"
+        BASE_MODULES+=("${mod}")
+    fi
+done
+
+for plugin in "${CONFIGURED_PLUGINS[@]}"; do
+    # Handle replacement module syntax (target=replacement)
+    if [[ "${plugin}" == *"="* ]]; then
+        target="${plugin%%=*}"
+        replacement="${plugin#*=}"
+
+        # If replacement is a remote module (not a local filesystem path starting with /, ./, or ../)
+        if [[ ! "${replacement}" =~ ^(\/|\.|\.\.) ]]; then
+            repl_mod="${replacement%%@*}"
+            repl_ver="${replacement#*@}"
+
+            if [ "${repl_ver}" == "${replacement}" ] || [ "${repl_ver}" == "latest" ]; then
+                actual_ver=$(go list -m -f '{{.Version}}' "${repl_mod}@latest" 2>/dev/null || echo "")
+                if [ -n "${actual_ver}" ]; then
+                    plugin="${target}=${repl_mod}@${actual_ver}"
+                else
+                    bashio::log.warning "Could not resolve version for replacement '${replacement}'."
+                    [ "${repl_ver}" == "${replacement}" ] && RESOLUTION_FAILED=true
+                fi
+            fi
+        fi
+
         RESOLVED_PLUGINS+="${plugin} "
         XCADDY_ARGS+=("--with" "${plugin}")
         continue
     fi
+
+    # Check if this plugin is a subpackage of any replaced module or configured base module
+    is_subpackage=false
+    for mod in "${REPLACED_MODULES[@]}" "${BASE_MODULES[@]}"; do
+        if [[ "${plugin}" == "${mod}"/* ]]; then
+            is_subpackage=true
+            bashio::log.debug "Plugin '${plugin}' is a subpackage of '${mod}', skipping version resolution."
+            RESOLVED_PLUGINS+="${plugin} "
+            XCADDY_ARGS+=("--with" "${plugin}")
+            break
+        fi
+    done
+    [ "${is_subpackage}" = true ] && continue
 
     module_path="${plugin%%@*}"
     version_spec="${plugin#*@}"
@@ -63,10 +111,27 @@ for plugin in $(bashio::config 'plugins'); do
         RESOLVED_PLUGINS+="${target_spec} "
         XCADDY_ARGS+=("--with" "${target_spec}")
     else
-        RESOLUTION_FAILED=true
-        bashio::log.warning "Could not resolve version for '${plugin}'."
-        RESOLVED_PLUGINS+="${plugin} "
-        XCADDY_ARGS+=("--with" "${plugin}")
+        # If module resolution failed, check if it is a subpackage of an unlisted parent module
+        parent_module="${module_path%/*}"
+        parent_version=""
+        while [[ "${parent_module}" == *"/"* ]]; do
+            parent_version=$(go list -m -f '{{.Version}}' "${parent_module}@latest" 2>/dev/null || echo "")
+            if [ -n "${parent_version}" ]; then
+                break
+            fi
+            parent_module="${parent_module%/*}"
+        done
+
+        if [ -n "${parent_version}" ]; then
+            bashio::log.debug "'${plugin}' identified as subpackage of module '${parent_module}@${parent_version}'."
+            RESOLVED_PLUGINS+="${plugin} "
+            XCADDY_ARGS+=("--with" "${plugin}")
+        else
+            RESOLUTION_FAILED=true
+            bashio::log.warning "Could not resolve version for '${plugin}'."
+            RESOLVED_PLUGINS+="${plugin} "
+            XCADDY_ARGS+=("--with" "${plugin}")
+        fi
     fi
 done
 
@@ -96,7 +161,8 @@ if [ -f "${CUSTOM_CADDY_PATH}" ]; then
        [ -n "${CURRENT_GO}" ] && [ "${CURRENT_GO}" == "${CONTAINER_GO_VERSION}" ]; then
         bashio::log.info "Caddy (${ACTUAL_CADDY_VERSION}), Go (${CONTAINER_GO_VERSION}) and plugins up to date (${RESOLVED_PLUGINS})."
         exit 0
-    elif [ "${RESOLUTION_FAILED}" = true ]; then
+    elif [ "${RESOLUTION_FAILED}" = true ] && [ "${RESOLVED_PLUGINS}" == "${LAST_PLUGINS}" ]; then
+        bashio::log.warning "Module version resolution failed (e.g. offline), but configuration is unchanged. Skipping rebuild."
         exit 0
     fi
 fi

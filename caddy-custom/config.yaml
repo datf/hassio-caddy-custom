@@ -21,7 +21,7 @@ options:
   log_level: info
 schema:
   plugins:
-    - 'match(^([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(:\d+)?/.*)'
+    - 'match(^([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(:\d+)?/[^\s@=]+(@[^\s=]+)?(=[^\s]+)?$)'
   args:
     - str
   env_vars:
