@@ -121,11 +121,11 @@ Possible values are:
 
 Caddy Custom maps three Home Assistant directories so your configuration, compiled binary, and TLS certificates persist safely across restarts and updates:
 
-| Container Path                | Home Assistant Mapping      | Purpose                                                                                                                                    |
-| :---------------------------- | :-------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------- |
-| `/config` (`XDG_CONFIG_HOME`) | `addon_config` (read/write) | Place your custom `Caddyfile` here (`/config/Caddyfile`). Also persists the compiled `/config/caddy-custom` binary and build state files.  |
-| `/ssl` (`XDG_DATA_HOME`)      | `ssl` (read/write)          | Caddy's data directory, storing Let's Encrypt / ZeroSSL certificates, private keys, and local PKI authorities.                             |
-| `/share`                      | `share` (read-only)         | Shared Home Assistant directory (for example, to serve static files or read shared certificates).                                          |
+| Container Path                | Home Assistant Mapping      | Purpose                                                                                                                                   |
+| :---------------------------- | :-------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------- |
+| `/config` (`XDG_CONFIG_HOME`) | `addon_config` (read/write) | Place your custom `Caddyfile` here (`/config/Caddyfile`). Also persists the compiled `/config/caddy-custom` binary and build state files. |
+| `/ssl` (`XDG_DATA_HOME`)      | `ssl` (read/write)          | Caddy's data directory, storing Let's Encrypt / ZeroSSL certificates, private keys, and local PKI authorities.                            |
+| `/share`                      | `share` (read-only)         | Shared Home Assistant directory (for example, to serve static files or read shared certificates).                                         |
 
 To provide your own configuration, create a file named `Caddyfile` inside the **`addon_config` directory for Caddy Custom** (on your Home Assistant host under `/addon_configs/<repo_prefix>_caddy-custom/Caddyfile`, for example `/addon_configs/91f8a72d_caddy-custom/Caddyfile` when installed from `datf/hassio-addons`).
 
