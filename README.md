@@ -1,26 +1,22 @@
 # Home Assistant App: Caddy Custom
 
-Caddy is a modern, cross-platform open-source web server written in Go with
-HTTPS certificate renewal built-in.
+Caddy is a modern, cross-platform open-source web server and reverse proxy written in Go with automatic HTTPS certificate renewal built-in.
 
-## About
+This app allows you to run Caddy directly on your Home Assistant instance and dynamically compile any Caddy plugins you need on the fly using `xcaddy`—straight from the app configuration, without maintaining custom Docker builds or using Caddy's downloads page.
 
-Add the Caddy plugins you want straight from the configuration! No need to
-compile caddy yourself or use their downloads page.
+## Documentation
 
-### Plugins Configuration
+For the full app documentation, including detailed installation instructions, configuration options (`plugins`, `args`, `env_vars`, `log_level`), `Caddyfile` setup, reverse proxy examples, and hardening Caddy with [CrowdSec](https://github.com/datf/app-crowdsec), please refer to the documentation file:
 
-Standard plugins, specific versions, module replacements, and subpackages are supported:
+**[Read the Full App Documentation here](caddy-custom/DOCS.md)**
 
-```yaml
-plugins:
-  # Standard plugin (defaults to @latest)
-  - github.com/caddyserver/replace-response
-  # Pinned version
-  - github.com/caddyserver/ntlm-transport@v0.1.1
-  # Module replacement syntax (forks, patches) and subpackages
-  - github.com/hslatman/caddy-crowdsec-bouncer=github.com/datf/caddy-crowdsec-bouncer@v0.0.1
-  - github.com/hslatman/caddy-crowdsec-bouncer/http
-  - github.com/hslatman/caddy-crowdsec-bouncer/appsec
-  - github.com/hslatman/caddy-crowdsec-bouncer/layer4
-```
+## Installation Quick Start
+
+This app is available through a custom repository. To install it:
+
+1. In Home Assistant, go to **Settings** -> **Apps** -> **Install app**, select **Repositories** from the context menu (**⋮**), and add:
+   `https://github.com/datf/hassio-addons`
+2. Search for **Caddy Custom** and click **Install**.
+3. Place your `Caddyfile` in the app's `/config` (`addon_config`) directory (or start with the built-in test configuration).
+
+_Please read the [full documentation](caddy-custom/DOCS.md) before starting the app to ensure it is configured securely._
