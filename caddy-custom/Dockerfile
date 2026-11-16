@@ -12,7 +12,7 @@ COPY rootfs /
 
 RUN apk add --no-cache \
     go=1.26.11-r0 \
-    nss-tools=3.124-r0
+    nss-tools=3.133-r0
 
 # Paths for caddy config and certificates
 ENV XDG_CONFIG_HOME=/config
