@@ -13,9 +13,11 @@ ENV GOPATH=/go \
     XDG_DATA_HOME=/ssl
 
 # Copy Go directly from the official multi-arch Alpine image
+# hadolint ignore=DL3022
 COPY --from=docker.io/library/golang:1.27.4-alpine /usr/local/go /usr/local/go
 
 # Copy xcaddy from the official caddy-builder image
+# hadolint ignore=DL3022
 COPY --from=docker.io/library/caddy:2.11.9-builder-alpine /usr/bin/xcaddy /usr/bin/xcaddy
 
 RUN mkdir -p "${GOPATH}/src" "${GOPATH}/bin" \
