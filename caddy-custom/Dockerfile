@@ -3,26 +3,31 @@ ARG BUILD_FROM=ghcr.io/hassio-addons/base:21.0.11
 FROM ${BUILD_FROM}
 
 ENV LANG=C.UTF-8
-ENV GOPATH=/go
-ENV PATH=${GOPATH}/bin:${PATH}
 
 RUN mkdir /app
 
+ENV GOPATH=/go \
+    GOTOOLCHAIN=local \
+    PATH="/go/bin:/usr/local/go/bin:${PATH}" \
+    XDG_CONFIG_HOME=/config \
+    XDG_DATA_HOME=/ssl
+
+# Copy Go directly from the official multi-arch Alpine image
+COPY --from=docker.io/library/golang:1.27.4-alpine /usr/local/go /usr/local/go
+
+# Copy xcaddy from the official caddy-builder image
+COPY --from=docker.io/library/caddy:2.11.9-builder-alpine /usr/bin/xcaddy /usr/bin/xcaddy
+
+RUN mkdir -p "${GOPATH}/src" "${GOPATH}/bin" \
+    && chmod -R 1777 "${GOPATH}" \
+    && apk add --no-cache \
+        nss-tools=3.133-r0
+
 COPY rootfs /
 
-RUN apk add --no-cache \
-    go=1.26.11-r0 \
-    nss-tools=3.133-r0
-
-# Paths for caddy config and certificates
-ENV XDG_CONFIG_HOME=/config
-ENV XDG_DATA_HOME=/ssl
-
-ENV XCADDY_VERSION="v0.4.7"
 ENV CADDY_VERSION="v2.11.9"
 
-RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@${XCADDY_VERSION}; \
-    xcaddy build ${CADDY_VERSION} --output /app/caddy; \
+RUN xcaddy build ${CADDY_VERSION} --output /app/caddy; \
     /app/caddy version; /app/caddy build-info
 
 # Build arguments
