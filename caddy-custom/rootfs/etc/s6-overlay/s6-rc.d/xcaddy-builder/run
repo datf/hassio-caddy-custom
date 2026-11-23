@@ -1,7 +1,8 @@
 #!/command/with-contenv bashio
+# shellcheck shell=bash
 # ==============================================================================
 # Build a custom version of caddy with xcaddy and the plugins from the config
-# s6-overlay docs: https://github.com/just-containers/s6-overlay
+# Runs as a background service checking for updates on a schedule.
 # ==============================================================================
 
 CUSTOM_CADDY_PATH="${XDG_CONFIG_HOME}/caddy-custom"
@@ -11,207 +12,296 @@ LAST_PLUGINS_FILE="${XDG_CONFIG_HOME}/last_plugins.txt"
 LAST_CADDY_FILE="${XDG_CONFIG_HOME}/last_caddy_version.txt"
 LAST_GO_FILE="${XDG_CONFIG_HOME}/last_go_version.txt"
 
-if ! bashio::config.has_value 'plugins'; then
-    if [ -f "${CUSTOM_CADDY_PATH}" ]; then
-        bashio::log.info "No plugins configured. Removing custom Caddy binary..."
-        rm -f "${CUSTOM_CADDY_PATH}" "${LAST_PLUGINS_FILE}" "${LAST_CADDY_FILE}" "${LAST_GO_FILE}"
-        touch /tmp/caddy_hotswap
-        bashio::log.info "Restarting Caddy service to revert to vanilla Caddy..."
-        s6-svc -r /run/service/caddy-custom
-    else
-        bashio::log.info "No plugins configured. No build required."
-    fi
-    exit 0
+UPDATE_CHECK_INTERVAL=24
+if bashio::config.has_value 'update_check_interval'; then
+    UPDATE_CHECK_INTERVAL=$(bashio::config 'update_check_interval')
 fi
 
-RESOLUTION_FAILED=false
+# Convert hours to seconds (e.g., 24h = 86400s)
+INTERVAL=$((UPDATE_CHECK_INTERVAL * 3600))
 
-CONTAINER_GO_VERSION=$(go env GOVERSION 2>/dev/null || go version 2>/dev/null | awk '{print $3}')
+trap 'rm -f "${TMP_CADDY_BUILD_PATH}"; exit 0' SIGTERM SIGINT
 
-# Check caddy version upstream
-ACTUAL_CADDY_VERSION=$(go list -m -f '{{.Version}}' "github.com/caddyserver/caddy/v2@latest" 2>/dev/null || echo "")
-if [ -z "${ACTUAL_CADDY_VERSION}" ]; then
-    RESOLUTION_FAILED=true
-    bashio::log.warning "Unable to query the latest caddy version."
-fi
-
-RESOLVED_PLUGINS=""
-XCADDY_ARGS=()
-
-readarray -t CONFIGURED_PLUGINS < <(bashio::config 'plugins')
-
-# Pre-scan plugins to identify module roots and replacements
-REPLACED_MODULES=()
-BASE_MODULES=()
-for plugin in "${CONFIGURED_PLUGINS[@]}"; do
-    if [[ "${plugin}" == *"="* ]]; then
-        target="${plugin%%=*}"
-        target_mod="${target%%@*}"
-        REPLACED_MODULES+=("${target_mod}")
+restart_caddy_service() {
+    touch /tmp/caddy_hotswap
+    bashio::log.info "Signaling Caddy service to restart..."
+    if bashio::fs.directory_exists "/run/service/caddy-custom"; then
+        if ! s6-svc -r /run/service/caddy-custom; then
+            bashio::log.warning "Failed to signal /run/service/caddy-custom to restart."
+            rm -f /tmp/caddy_hotswap
+            return 1
+        fi
+    elif bashio::fs.directory_exists "/run/s6/services/caddy-custom"; then
+        if ! s6-svc -r /run/s6/services/caddy-custom; then
+            bashio::log.warning "Failed to signal /run/s6/services/caddy-custom to restart."
+            rm -f /tmp/caddy_hotswap
+            return 1
+        fi
     else
-        mod="${plugin%%@*}"
-        BASE_MODULES+=("${mod}")
+        bashio::log.warning "Caddy service directory not found; cannot signal restart."
+        rm -f /tmp/caddy_hotswap
+        return 1
     fi
-done
+}
 
-for plugin in "${CONFIGURED_PLUGINS[@]}"; do
-    # Handle replacement module syntax (target=replacement)
-    if [[ "${plugin}" == *"="* ]]; then
-        target="${plugin%%=*}"
-        replacement="${plugin#*=}"
+check_app_version() {
+    bashio::log.debug "Checking for app updates via Supervisor API..."
+    bashio::cache.flush_all || true
+    local update_available=""
+    if update_available=$(bashio::app.update_available 2>/dev/null); then
+        if bashio::var.true "${update_available}"; then
+            local latest_version=""
+            latest_version=$(bashio::app.version_latest 2>/dev/null || echo "unknown")
+            local current_version=""
+            current_version=$(bashio::app.version 2>/dev/null || echo "unknown")
+            local app_name=""
+            app_name=$(bashio::app.name 2>/dev/null || echo "Caddy Custom")
+            bashio::log.notice "A new version of ${app_name} is available: ${latest_version} (current: ${current_version})"
+        else
+            bashio::log.debug "App is up to date."
+        fi
+    else
+        bashio::log.debug "App update check via Supervisor API is unavailable."
+    fi
+}
 
-        # If replacement is a remote module (not a local filesystem path starting with /, ./, or ../)
-        if [[ ! "${replacement}" =~ ^(\/|\.|\.\.) ]]; then
-            repl_mod="${replacement%%@*}"
-            repl_ver="${replacement#*@}"
+run_build_check() {
+    local HAS_PLUGINS=false
+    local CONFIGURED_PLUGINS=()
+    if bashio::config.has_value 'plugins'; then
+        readarray -t RAW_PLUGINS < <(bashio::config 'plugins')
+        for plugin in "${RAW_PLUGINS[@]}"; do
+            [ -n "${plugin}" ] && CONFIGURED_PLUGINS+=("${plugin}")
+        done
+        if [ "${#CONFIGURED_PLUGINS[@]}" -gt 0 ]; then
+            HAS_PLUGINS=true
+        fi
+    fi
 
-            if [ "${repl_ver}" == "${replacement}" ] || [ "${repl_ver}" == "latest" ]; then
-                actual_ver=$(go list -m -f '{{.Version}}' "${repl_mod}@latest" 2>/dev/null || echo "")
-                if [ -n "${actual_ver}" ]; then
-                    plugin="${target}=${repl_mod}@${actual_ver}"
-                else
-                    bashio::log.warning "Could not resolve version for replacement '${replacement}'."
-                    [ "${repl_ver}" == "${replacement}" ] && RESOLUTION_FAILED=true
+    if [ "${HAS_PLUGINS}" = false ]; then
+        if bashio::fs.file_exists "${CUSTOM_CADDY_PATH}"; then
+            bashio::log.info "No plugins configured. Removing custom Caddy binary..."
+            rm -f "${CUSTOM_CADDY_PATH}" "${LAST_PLUGINS_FILE}" "${LAST_CADDY_FILE}" "${LAST_GO_FILE}"
+            restart_caddy_service
+        else
+            bashio::log.info "No plugins configured. No build required."
+        fi
+        return 0
+    fi
+
+    local RESOLUTION_FAILED=false
+
+    local CONTAINER_GO_VERSION=""
+    CONTAINER_GO_VERSION=$(go env GOVERSION 2>/dev/null || go version 2>/dev/null | awk '{print $3}')
+
+    # Check caddy version upstream
+    local ACTUAL_CADDY_VERSION=""
+    ACTUAL_CADDY_VERSION=$(go list -m -f '{{.Version}}' "github.com/caddyserver/caddy/v2@latest" 2>/dev/null || echo "")
+    if [ -z "${ACTUAL_CADDY_VERSION}" ]; then
+        RESOLUTION_FAILED=true
+        bashio::log.warning "Unable to query the latest caddy version."
+    fi
+
+    local RESOLVED_PLUGINS=""
+    local XCADDY_ARGS=()
+
+    # Pre-scan plugins to identify module roots and replacements
+    local REPLACED_MODULES=()
+    local BASE_MODULES=()
+    for plugin in "${CONFIGURED_PLUGINS[@]}"; do
+        if [[ "${plugin}" == *"="* ]]; then
+            local target="${plugin%%=*}"
+            local target_mod="${target%%@*}"
+            REPLACED_MODULES+=("${target_mod}")
+        else
+            local mod="${plugin%%@*}"
+            BASE_MODULES+=("${mod}")
+        fi
+    done
+
+    for plugin in "${CONFIGURED_PLUGINS[@]}"; do
+        # Handle replacement module syntax (target=replacement)
+        if [[ "${plugin}" == *"="* ]]; then
+            local target="${plugin%%=*}"
+            local replacement="${plugin#*=}"
+
+            # If replacement is a remote module (not a local filesystem path starting with /, ./, or ../)
+            if [[ ! "${replacement}" =~ ^(\/|\.|\.\.) ]]; then
+                local repl_mod="${replacement%%@*}"
+                local repl_ver="${replacement#*@}"
+
+                if [ "${repl_ver}" == "${replacement}" ] || [ "${repl_ver}" == "latest" ]; then
+                    local actual_ver=""
+                    actual_ver=$(go list -m -f '{{.Version}}' "${repl_mod}@latest" 2>/dev/null || echo "")
+                    if [ -n "${actual_ver}" ]; then
+                        plugin="${target}=${repl_mod}@${actual_ver}"
+                    else
+                        bashio::log.warning "Could not resolve version for replacement '${replacement}'."
+                        [ "${repl_ver}" == "${replacement}" ] && RESOLUTION_FAILED=true
+                    fi
                 fi
             fi
-        fi
 
-        RESOLVED_PLUGINS+="${plugin} "
-        XCADDY_ARGS+=("--with" "${plugin}")
-        continue
-    fi
-
-    # Check if this plugin is a subpackage of any replaced module or configured base module
-    is_subpackage=false
-    for mod in "${REPLACED_MODULES[@]}" "${BASE_MODULES[@]}"; do
-        if [[ "${plugin}" == "${mod}"/* ]]; then
-            is_subpackage=true
-            bashio::log.debug "Plugin '${plugin}' is a subpackage of '${mod}', skipping version resolution."
             RESOLVED_PLUGINS+="${plugin} "
             XCADDY_ARGS+=("--with" "${plugin}")
-            break
+            continue
         fi
-    done
-    [ "${is_subpackage}" = true ] && continue
 
-    module_path="${plugin%%@*}"
-    version_spec="${plugin#*@}"
-
-    # Use @latest if no version specified
-    if [ "${version_spec}" == "${plugin}" ]; then
-        query="${module_path}@latest"
-    else
-        query="${module_path}@${version_spec}"
-    fi
-
-    actual_version=$(go list -m -f '{{.Version}}' "${query}" 2>/dev/null || echo "")
-
-    if [ -n "${actual_version}" ]; then
-        target_spec="${module_path}@${actual_version}"
-        RESOLVED_PLUGINS+="${target_spec} "
-        XCADDY_ARGS+=("--with" "${target_spec}")
-    else
-        # If module resolution failed, check if it is a subpackage of an unlisted parent module
-        parent_module="${module_path%/*}"
-        parent_version=""
-        while [[ "${parent_module}" == *"/"* ]]; do
-            parent_version=$(go list -m -f '{{.Version}}' "${parent_module}@latest" 2>/dev/null || echo "")
-            if [ -n "${parent_version}" ]; then
+        # Check if this plugin is a subpackage of any replaced module or configured base module
+        local is_subpackage=false
+        for mod in "${REPLACED_MODULES[@]}" "${BASE_MODULES[@]}"; do
+            if [[ "${plugin}" == "${mod}"/* ]]; then
+                is_subpackage=true
+                bashio::log.debug "Plugin '${plugin}' is a subpackage of '${mod}', skipping version resolution."
+                RESOLVED_PLUGINS+="${plugin} "
+                XCADDY_ARGS+=("--with" "${plugin}")
                 break
             fi
-            parent_module="${parent_module%/*}"
         done
+        [ "${is_subpackage}" = true ] && continue
 
-        if [ -n "${parent_version}" ]; then
-            bashio::log.debug "'${plugin}' identified as subpackage of module '${parent_module}@${parent_version}'."
-            RESOLVED_PLUGINS+="${plugin} "
-            XCADDY_ARGS+=("--with" "${plugin}")
+        local module_path="${plugin%%@*}"
+        local version_spec="${plugin#*@}"
+
+        local query=""
+        if [ "${version_spec}" == "${plugin}" ]; then
+            query="${module_path}@latest"
         else
-            RESOLUTION_FAILED=true
-            bashio::log.warning "Could not resolve version for '${plugin}'."
-            RESOLVED_PLUGINS+="${plugin} "
-            XCADDY_ARGS+=("--with" "${plugin}")
+            query="${module_path}@${version_spec}"
         fi
-    fi
-done
 
-# Trim whitespace
-RESOLVED_PLUGINS="$(echo "${RESOLVED_PLUGINS}" | xargs)"
-LAST_PLUGINS="$(cat "${LAST_PLUGINS_FILE}" 2>/dev/null || echo "")"
-LAST_PLUGINS="$(echo "${LAST_PLUGINS}" | xargs)"
+        local actual_version=""
+        actual_version=$(go list -m -f '{{.Version}}' "${query}" 2>/dev/null || echo "")
 
-INSTALLED_CADDY_VERSION=""
-INSTALLED_GO_VERSION=""
-if [ -f "${CUSTOM_CADDY_PATH}" ]; then
-    INSTALLED_CADDY_VERSION=$("${CUSTOM_CADDY_PATH}" version 2>/dev/null | awk '{print $1}')
-    INSTALLED_GO_VERSION=$("${CUSTOM_CADDY_PATH}" build-info 2>/dev/null | awk '$1 == "go" {print $2}')
-    if [ -z "${INSTALLED_GO_VERSION}" ]; then
-        INSTALLED_GO_VERSION=$(go version "${CUSTOM_CADDY_PATH}" 2>/dev/null | awk '{print $2}')
-    fi
-fi
-LAST_CADDY_VERSION=$(cat "${LAST_CADDY_FILE}" 2>/dev/null || echo "")
-CURRENT_CADDY="${INSTALLED_CADDY_VERSION:-${LAST_CADDY_VERSION}}"
+        if [ -n "${actual_version}" ]; then
+            local target_spec="${module_path}@${actual_version}"
+            RESOLVED_PLUGINS+="${target_spec} "
+            XCADDY_ARGS+=("--with" "${target_spec}")
+        else
+            # If module resolution failed, check if it is a subpackage of an unlisted parent module
+            local parent_module="${module_path%/*}"
+            local parent_version=""
+            while [[ "${parent_module}" == *"/"* ]]; do
+                parent_version=$(go list -m -f '{{.Version}}' "${parent_module}@latest" 2>/dev/null || echo "")
+                if [ -n "${parent_version}" ]; then
+                    break
+                fi
+                parent_module="${parent_module%/*}"
+            done
 
-LAST_GO_VERSION=$(cat "${LAST_GO_FILE}" 2>/dev/null || echo "")
-CURRENT_GO="${INSTALLED_GO_VERSION:-${LAST_GO_VERSION}}"
-
-if [ -f "${CUSTOM_CADDY_PATH}" ]; then
-    if [ "${RESOLVED_PLUGINS}" == "${LAST_PLUGINS}" ] && \
-       [ -n "${CURRENT_CADDY}" ] && [ "${CURRENT_CADDY}" == "${ACTUAL_CADDY_VERSION}" ] && \
-       [ -n "${CURRENT_GO}" ] && [ "${CURRENT_GO}" == "${CONTAINER_GO_VERSION}" ]; then
-        bashio::log.info "Caddy (${ACTUAL_CADDY_VERSION}), Go (${CONTAINER_GO_VERSION}) and plugins up to date (${RESOLVED_PLUGINS})."
-        exit 0
-    elif [ "${RESOLUTION_FAILED}" = true ] && [ "${RESOLVED_PLUGINS}" == "${LAST_PLUGINS}" ]; then
-        bashio::log.warning "Module version resolution failed (e.g. offline), but configuration is unchanged. Skipping rebuild."
-        exit 0
-    fi
-fi
-
-if [ -n "${CURRENT_GO}" ] && [ -n "${CONTAINER_GO_VERSION}" ] && [ "${CURRENT_GO}" != "${CONTAINER_GO_VERSION}" ]; then
-    bashio::log.info "New Go version detected (Current: '${CURRENT_GO}', Last: '${CONTAINER_GO_VERSION}'). Rebuilding Caddy..."
-elif [ -n "${CURRENT_CADDY}" ] && [ -n "${ACTUAL_CADDY_VERSION}" ] && [ "${CURRENT_CADDY}" != "${ACTUAL_CADDY_VERSION}" ]; then
-    bashio::log.info "New version from mainstream (Current: '${CURRENT_CADDY}', Latest: '${ACTUAL_CADDY_VERSION}'). Rebuilding Caddy..."
-else
-    bashio::log.info "Config or plugin version change detected (Current plugins: '${LAST_PLUGINS}', Target: '${RESOLVED_PLUGINS}'). Building new Caddy binary..."
-fi
-
-# Run the build to a temporary location
-if xcaddy build ${ACTUAL_CADDY_VERSION:+${ACTUAL_CADDY_VERSION}} --output "${TMP_CADDY_BUILD_PATH}" "${XCADDY_ARGS[@]}"; then
-    bashio::log.info "Build successful. Validating configuration..."
-
-    # Export ENV vars before validation, in case the Caddyfile requires them to parse correctly
-    for var in $(bashio::config 'env_vars|keys'); do
-        export "$(bashio::config "env_vars[${var}].name")"="$(bashio::config "env_vars[${var}].value")"
+            if [ -n "${parent_version}" ]; then
+                bashio::log.debug "'${plugin}' identified as subpackage of module '${parent_module}@${parent_version}'."
+                RESOLVED_PLUGINS+="${plugin} "
+                XCADDY_ARGS+=("--with" "${plugin}")
+            else
+                RESOLUTION_FAILED=true
+                bashio::log.warning "Could not resolve version for '${plugin}'."
+                RESOLVED_PLUGINS+="${plugin} "
+                XCADDY_ARGS+=("--with" "${plugin}")
+            fi
+        fi
     done
 
-    # Test the new binary with the current config
-    CONFIG_PATH="/etc/caddy/Caddyfile"
-    if [ -f "${XDG_CONFIG_HOME}/Caddyfile" ]; then
-        CONFIG_PATH="${XDG_CONFIG_HOME}/Caddyfile"
+    # Trim whitespace
+    RESOLVED_PLUGINS="$(echo "${RESOLVED_PLUGINS}" | xargs)"
+    local LAST_PLUGINS=""
+    LAST_PLUGINS="$(cat "${LAST_PLUGINS_FILE}" 2>/dev/null || echo "")"
+    LAST_PLUGINS="$(echo "${LAST_PLUGINS}" | xargs)"
+
+    local INSTALLED_CADDY_VERSION=""
+    local INSTALLED_GO_VERSION=""
+    if bashio::fs.file_exists "${CUSTOM_CADDY_PATH}"; then
+        INSTALLED_CADDY_VERSION=$("${CUSTOM_CADDY_PATH}" version 2>/dev/null | awk '{print $1}')
+        INSTALLED_GO_VERSION=$("${CUSTOM_CADDY_PATH}" build-info 2>/dev/null | awk '$1 == "go" {print $2}')
+        if [ -z "${INSTALLED_GO_VERSION}" ]; then
+            INSTALLED_GO_VERSION=$(go version "${CUSTOM_CADDY_PATH}" 2>/dev/null | awk '{print $2}')
+        fi
+    fi
+    local LAST_CADDY_VERSION=""
+    LAST_CADDY_VERSION=$(cat "${LAST_CADDY_FILE}" 2>/dev/null || echo "")
+    local CURRENT_CADDY="${INSTALLED_CADDY_VERSION:-${LAST_CADDY_VERSION}}"
+
+    local LAST_GO_VERSION=""
+    LAST_GO_VERSION=$(cat "${LAST_GO_FILE}" 2>/dev/null || echo "")
+    local CURRENT_GO="${INSTALLED_GO_VERSION:-${LAST_GO_VERSION}}"
+
+    if bashio::fs.file_exists "${CUSTOM_CADDY_PATH}"; then
+        if [ "${RESOLVED_PLUGINS}" == "${LAST_PLUGINS}" ] && \
+           [ -n "${CURRENT_CADDY}" ] && [ "${CURRENT_CADDY}" == "${ACTUAL_CADDY_VERSION}" ] && \
+           [ -n "${CURRENT_GO}" ] && [ "${CURRENT_GO}" == "${CONTAINER_GO_VERSION}" ]; then
+            bashio::log.info "Caddy (${ACTUAL_CADDY_VERSION}), Go (${CONTAINER_GO_VERSION}) and plugins up to date (${RESOLVED_PLUGINS})."
+            return 0
+        elif [ "${RESOLUTION_FAILED}" = true ] && [ "${RESOLVED_PLUGINS}" == "${LAST_PLUGINS}" ]; then
+            bashio::log.warning "Module version resolution failed (e.g. offline), but configuration is unchanged. Skipping rebuild."
+            return 0
+        fi
     fi
 
-    if "${TMP_CADDY_BUILD_PATH}" validate --config "${CONFIG_PATH}"; then
-        bashio::log.info "Validation passed! Deploying..."
-
-        # Replace the persistent binary and update the state
-        mv "${TMP_CADDY_BUILD_PATH}" "${CUSTOM_CADDY_PATH}"
-        chmod +x "${CUSTOM_CADDY_PATH}"
-        echo "${RESOLVED_PLUGINS}" > "${LAST_PLUGINS_FILE}"
-        echo "${ACTUAL_CADDY_VERSION}" > "${LAST_CADDY_FILE}"
-        echo "${CONTAINER_GO_VERSION}" > "${LAST_GO_FILE}"
-
-        touch /tmp/caddy_hotswap
-
-        bashio::log.info "Restarting Caddy service to load new binary..."
-        # Restart with the new binary via s6-rc.d
-        s6-svc -r /run/service/caddy-custom
+    if [ -n "${CURRENT_GO}" ] && [ -n "${CONTAINER_GO_VERSION}" ] && [ "${CURRENT_GO}" != "${CONTAINER_GO_VERSION}" ]; then
+        bashio::log.info "New Go version detected (Current: '${CURRENT_GO}', Container: '${CONTAINER_GO_VERSION}'). Rebuilding Caddy..."
+    elif [ -n "${CURRENT_CADDY}" ] && [ -n "${ACTUAL_CADDY_VERSION}" ] && [ "${CURRENT_CADDY}" != "${ACTUAL_CADDY_VERSION}" ]; then
+        bashio::log.info "New version from mainstream (Current: '${CURRENT_CADDY}', Latest: '${ACTUAL_CADDY_VERSION}'). Rebuilding Caddy..."
     else
-        bashio::log.error "New binary failed validation. Aborting deployment."
-        exit 1
+        bashio::log.info "Config or plugin version change detected (Current plugins: '${LAST_PLUGINS}', Target: '${RESOLVED_PLUGINS}'). Building new Caddy binary..."
     fi
-else
-    bashio::log.error "xcaddy build failed."
-    exit 1
-fi
 
-exit 0
+    # Run the build to a temporary location
+    rm -f "${TMP_CADDY_BUILD_PATH}"
+    if xcaddy build ${ACTUAL_CADDY_VERSION:+${ACTUAL_CADDY_VERSION}} --output "${TMP_CADDY_BUILD_PATH}" "${XCADDY_ARGS[@]}"; then
+        bashio::log.info "Build successful. Validating configuration..."
+
+        # Export ENV vars before validation, in case the Caddyfile requires them to parse correctly
+        if bashio::config.has_value 'env_vars'; then
+            for var in $(bashio::config 'env_vars|keys'); do
+                export "$(bashio::config "env_vars[${var}].name")"="$(bashio::config "env_vars[${var}].value")"
+            done
+        fi
+
+        # Test the new binary with the current config
+        local CONFIG_PATH="/etc/caddy/Caddyfile"
+        if bashio::fs.file_exists "${XDG_CONFIG_HOME}/Caddyfile"; then
+            CONFIG_PATH="${XDG_CONFIG_HOME}/Caddyfile"
+        fi
+
+        if "${TMP_CADDY_BUILD_PATH}" validate --config "${CONFIG_PATH}"; then
+            bashio::log.info "Validation passed! Deploying..."
+
+            # Replace the persistent binary and update the state
+            mv "${TMP_CADDY_BUILD_PATH}" "${CUSTOM_CADDY_PATH}"
+            chmod +x "${CUSTOM_CADDY_PATH}"
+            echo "${RESOLVED_PLUGINS}" > "${LAST_PLUGINS_FILE}"
+            echo "${ACTUAL_CADDY_VERSION}" > "${LAST_CADDY_FILE}"
+            echo "${CONTAINER_GO_VERSION}" > "${LAST_GO_FILE}"
+
+            bashio::log.info "Restarting Caddy service to load new binary..."
+            restart_caddy_service
+            return 0
+        else
+            bashio::log.error "New binary failed validation with '${CONFIG_PATH}'. Aborting deployment."
+            rm -f "${TMP_CADDY_BUILD_PATH}"
+            return 1
+        fi
+    else
+        bashio::log.error "xcaddy build failed."
+        rm -f "${TMP_CADDY_BUILD_PATH}"
+        return 1
+    fi
+}
+
+while true; do
+    check_app_version || true
+    run_build_check || true
+
+    if [ "${UPDATE_CHECK_INTERVAL}" -le 0 ]; then
+        bashio::log.info "Scheduled update checks are disabled (update_check_interval: 0). xcaddy-builder will remain idle."
+        while true; do
+            sleep 86400 &
+            wait $!
+        done
+    fi
+
+    bashio::log.debug "Next update check in ${UPDATE_CHECK_INTERVAL} hour(s)."
+    # Background sleep + wait lets bash handle SIGTERM immediately
+    sleep "${INTERVAL}" &
+    wait $!
+done
